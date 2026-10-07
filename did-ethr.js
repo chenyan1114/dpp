@@ -1,7 +1,7 @@
 /* did:ethr（Sepolia）＋ secp256k1 可回推簽名。
    secp256k1／keccak256／EIP-55 用 ethers.js v6（index.html 以 CDN 載入）；
    DID 解析用官方 ethr-did-resolver（讀 ERC-1056 registry 的鏈上事件組出 DID 文件，含委派金鑰、撤銷、owner 轉移）。
-   本檔只做唯讀查詢，不送交易、不花 gas。 */
+   寫入合約（授權／撤銷委派金鑰）透過使用者的 MetaMask 送交易，由使用者在 MetaMask 確認並付 gas。 */
 "use strict";
 
 const ETHR = {
@@ -17,6 +17,13 @@ const ETHR = {
     "https://cdn.jsdelivr.net/npm/ethr-did-resolver@14.1.4/+esm",
   ],
   importResolver: () => Promise.all(ETHR.resolverModules.map((u) => import(u))), // test.js 會換成 npm 版
+  registryAbi: [
+    "function identityOwner(address identity) view returns (address)",
+    "function addDelegate(address identity, bytes32 delegateType, address delegate, uint256 validity)",
+    "function revokeDelegate(address identity, bytes32 delegateType, address delegate)",
+  ],
+  delegateType: "veriKey", // resolver 會把 veriKey 委派列進 assertionMethod（可用來簽發憑證）
+  explorer: "https://sepolia.etherscan.io",
 };
 
 function requireEthers() {
@@ -65,7 +72,8 @@ DID_METHODS["did:ethr:"] = {
   async generate() {
     const e = requireEthers();
     const signingKey = new e.SigningKey(e.randomBytes(32));
-    return { did: `did:ethr:${ETHR.network}:${e.computeAddress(signingKey)}`, cryptosuite: ETHR.cryptosuite, signingKey };
+    const address = e.computeAddress(signingKey);
+    return { did: `did:ethr:${ETHR.network}:${address}`, cryptosuite: ETHR.cryptosuite, signingKey, address };
   },
 
   /* did:ethr:<network>:0x<address>；只接受 Sepolia + 地址形式 */
@@ -92,6 +100,73 @@ DID_METHODS["did:ethr:"] = {
     return resolveDidEthr(did, rpcUrl);
   },
 };
+
+/* ---------- 寫入合約（MetaMask）：只有 DID 的 owner 能修改自己的 DID 文件 ---------- */
+async function connectEthrWallet() {
+  const e = requireEthers();
+  const eth = globalThis.ethereum;
+  // file:// 頁面沒有正常的 origin，MetaMask 的確認視窗會當掉（"reading 'origin'"）
+  if (globalThis.location?.protocol === "file:") {
+    throw new Error("MetaMask 無法在雙擊開啟的 file:// 頁面使用，請改用 http://localhost:<port> 或 https://chenyan1114.github.io/dpp/ 開啟");
+  }
+  if (!eth) throw new Error("找不到 MetaMask：請在已安裝 MetaMask 的瀏覽器開啟（頁面需為 https 或 localhost）");
+  await eth.request({ method: "eth_requestAccounts" });
+  const chainId = "0x" + ETHR.chainId.toString(16);
+  if ((await eth.request({ method: "eth_chainId" })) !== chainId) { // 已在 Sepolia 就不再跳切換視窗
+    try {
+      await eth.request({ method: "wallet_switchEthereumChain", params: [{ chainId }] });
+    } catch (err) {
+      if (err.code !== 4902) throw err; // 4902 = 錢包裡沒有這條鏈
+      await eth.request({ method: "wallet_addEthereumChain", params: [{ chainId, chainName: "Sepolia",
+        nativeCurrency: { name: "Sepolia ETH", symbol: "ETH", decimals: 18 }, rpcUrls: [ETHR.defaultRpc], blockExplorerUrls: [ETHR.explorer] }] });
+    }
+  }
+  const provider = new e.BrowserProvider(eth); // 切到 Sepolia 之後才建立，避免 ethers 報 network changed
+  const signer = await provider.getSigner();
+  const address = await signer.getAddress();
+  return { provider, signer, address, did: `did:ethr:${ETHR.network}:${address}` };
+}
+
+async function sendRegistryTx(wallet, method, args) {
+  const e = requireEthers();
+  const registry = new e.Contract(ETHR.registry, ETHR.registryAbi, wallet.signer);
+  const owner = await registry.identityOwner(wallet.address);
+  if (owner !== wallet.address) throw new Error(`這個 DID 的 owner 是 ${owner}，不是目前的 MetaMask 帳戶，無法修改它的 DID 文件`);
+  if ((await wallet.provider.getBalance(wallet.address)) === 0n) throw new Error("帳戶沒有 Sepolia ETH 可付 gas，請先到水龍頭領取測試幣");
+  const tx = await registry[method](...args); // MetaMask 跳出確認視窗
+  const receipt = await tx.wait();
+  if (receipt.status !== 1) throw new Error("交易失敗（reverted）：" + receipt.hash);
+  return receipt;
+}
+
+/* addDelegate(你的地址, "veriKey", 簽名金鑰, 有效秒數)：授權頁面金鑰代表你的 DID 簽發憑證 */
+function addEthrDelegate(wallet, delegate, validitySeconds) {
+  return sendRegistryTx(wallet, "addDelegate",
+    [wallet.address, ethers.encodeBytes32String(ETHR.delegateType), delegate, validitySeconds]);
+}
+
+function revokeEthrDelegate(wallet, delegate) {
+  return sendRegistryTx(wallet, "revokeDelegate", [wallet.address, ethers.encodeBytes32String(ETHR.delegateType), delegate]);
+}
+
+function walletErrorMessage(err) {
+  if (err.code === "ACTION_REJECTED" || err.code === 4001) return "你在 MetaMask 取消了操作";
+  if (err.code === "INSUFFICIENT_FUNDS") return "Sepolia ETH 不足以支付 gas，請先到水龍頭領取測試幣";
+  return err.shortMessage || err.message;
+}
+
+/* 交易上鏈後，等 RPC 解析到（present=true）或不再解析到（false）這把委派金鑰；回傳它在 DID 文件裡的 fragment */
+async function waitForDelegate(did, delegate, rpcUrl, present) {
+  for (let i = 0; i < 10; i++) {
+    const res = await resolveDidEthr(did, rpcUrl || ETHR.defaultRpc);
+    const m = (res.didDocument?.verificationMethod ?? []).find((v) => {
+      try { return fragmentOf(v.id) !== "controller" && methodAddress(v) === delegate; } catch { return false; }
+    });
+    if (!!m === present) return m ? fragmentOf(m.id) : null;
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+  }
+  throw new Error(`交易已上鏈，但 RPC 30 秒內仍${present ? "未解析到新的" : "解析到"}委派金鑰，請稍後按「解析 DID 文件」確認`);
+}
 
 /* 驗證用：解析 DID 文件。連不上 → 退回預設文件並提醒；停用或其他錯誤 → 失敗（回傳 null） */
 async function resolveForVerify(r, did, didInfo, rpcUrl) {

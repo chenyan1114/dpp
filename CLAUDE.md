@@ -13,7 +13,12 @@ The user asked to **use built-in or existing crypto rather than reimplementing i
   - If the RPC is unreachable (resolver returns `internalError`), it falls back to the default doc, where `#controller` is the DID's own address, and reports a warning.
   - secp256k1, keccak and EIP-55 come from **ethers.js v6**, loaded from cdnjs with an SRI hash. The resolver is `import()`ed lazily from jsdelivr `+esm` (`ETHR.resolverModules`, pinned to `did-resolver@5.0.1` + `ethr-did-resolver@14.1.4`; ethr-did-resolver 14 needs did-resolver 5, not 6).
 - **RPC gotcha**: resolution reads *old* event logs. `ethereum-sepolia-rpc.publicnode.com` prunes logs older than ~10k blocks, so old delegates silently disappear. The default is `https://sepolia.gateway.tenderly.co`, which is free, CORS-enabled and keeps historical logs. drpc's free tier rejects Sepolia, 1rpc limits getLogs to 50 blocks, and blastapi/blockpi/omniatech lack CORS.
-- Agreed roadmap: step 1, read-only DID resolution, is **done**. Step 2: a MetaMask account is the issuer DID, the in-page key is its delegate (`addDelegate(identity, "veriKey", delegate, validity)`); sign with `keys.verificationMethod = <did>#delegate-N`, then `revokeDelegate` to show revocation. The user performs on-chain transactions in their own Chrome; never confirm transactions for them. Avoid `changeOwner` on the user's DID (irreversible). Step 3, JWT interop, is optional.
+- Roadmap: step 1 (read-only DID resolution) is done, and step 2 (MetaMask writes) is implemented.
+  - In step 2, the MetaMask account is the issuer DID and an in-page key is its `veriKey` delegate. The issuer key object is `{ viaWallet: true, address, verificationMethod: <did>#delegate-N }`. `btnSign` refuses to sign until it is delegated.
+  - The wallet code lives in `did-ethr.js`: `connectEthrWallet`, `sendRegistryTx` (pre-checks owner and balance), `addEthrDelegate`/`revokeEthrDelegate`, and `waitForDelegate`, which polls the resolver until the delegate appears or disappears and returns its fragment. Delegate numbering is assigned by the resolver, so always read it back; never compute it.
+  - The user performs on-chain transactions in their own Chrome; never confirm transactions for them. Avoid `changeOwner` on the user's DID (irreversible).
+  - Without MetaMask, test with a fake `window.ethereum`: forward reads to Tenderly and reject `eth_sendTransaction` with code 4001 to inspect the encoded tx. For the post-receipt path, override the global `sendRegistryTx` and `ETHR.importResolver`.
+  - Step 3 (JWT interop) is optional.
 - `TODO.md` is the original exercise brief. Its example JSON is VC v1. The implementation deliberately uses v2.0 (`validFrom`/`validUntil`, `https://www.w3.org/ns/credentials/v2`).
 
 ## Commands

@@ -10,7 +10,7 @@
   h1 { font-size: 1.5rem; }
   .card { border: 1px solid #8884; border-radius: 12px; padding: 16px; margin: 16px 0; }
   label { display: block; font-weight: 600; margin: 10px 0 4px; }
-  input, textarea { width: 100%; padding: 8px; border-radius: 8px; border: 1px solid #8886; font: inherit; }
+  input, textarea, select { width: 100%; padding: 8px; border-radius: 8px; border: 1px solid #8886; font: inherit; }
   .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   @media (max-width: 640px) { .row { grid-template-columns: 1fr; } }
   button { padding: 10px 16px; border-radius: 10px; border: 1px solid #8886; cursor: pointer; font: inherit; font-weight: 600; margin: 6px 8px 6px 0; }
@@ -85,6 +85,23 @@
     <label>holder — 放入 credentialSubject.id</label>
     <code class="did" id="holderDid">尚未生成</code>
     <p class="hint" id="keyMethod">—</p>
+
+    <h3>鏈上授權簽名金鑰（did:ethr＋MetaMask）</h3>
+    <p class="hint">MetaMask 帳戶 = 發證單位的 DID（由它付 gas）；頁面產生的金鑰 = 被授權的簽名鑰匙（不需要 ETH）。
+      授權 = 呼叫 registry 的 <code>addDelegate(你的地址, "veriKey", 簽名鑰匙, 有效期)</code>，之後用 <code>#delegate-N</code> 簽 VC；
+      撤銷 = <code>revokeDelegate</code>，撤銷後用它簽過的 VC 再驗證就會失敗。需要少量 Sepolia 測試幣。</p>
+    <p><button id="btnWallet">🦊 連接 MetaMask，用它當 issuer</button></p>
+    <label for="inValidity">授權有效期</label>
+    <select id="inValidity">
+      <option value="600">10 分鐘（示範過期）</option>
+      <option value="86400" selected>1 天</option>
+      <option value="2592000">30 天</option>
+    </select>
+    <p>
+      <button id="btnDelegate" class="primary">🔗 授權簽名金鑰（addDelegate）</button>
+      <button id="btnRevoke">⛔ 撤銷（revokeDelegate）</button>
+    </p>
+    <p class="hint" id="walletStatus">尚未連接 MetaMask。</p>
 
     <h3>解析 DID 文件</h3>
     <p class="hint">DID 文件列出「這個 DID 授權了哪些金鑰」。did:key 由字串本身推導；did:ethr 由

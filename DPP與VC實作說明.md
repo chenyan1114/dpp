@@ -557,6 +557,38 @@ W3C 標準的 ECDSA 套件（`ecdsa-rdfc-2019`／`ecdsa-jcs-2019`）只支援 P-
 ### 17.6 下一步（尚未做）
 
 1. ~~驗證端解析鏈上事件組 DID 文件~~（已完成：`ethr-did-resolver`，頁面第 2 卡可「📖 解析 DID 文件」）；
-2. **寫入合約**：MetaMask 帳戶當發證單位 DID、頁面金鑰當簽名鑰匙，`addDelegate(…, "veriKey", …)` 授權 →
-   用 `#delegate-1` 簽 VC → `revokeDelegate` 撤銷後同一份 VC 驗證失敗（did:key 做不到的吊銷，見 §13）；
-3. **互通**：改出 JWT 版（`ES256K-R`），用 did-jwt-vc／Universal Resolver 交叉驗證。
+2. ~~寫入合約：授權與撤銷簽名金鑰~~（已完成，見 §17.7）；
+3. **互通**：改出 JWT 版（`ES256K-R`），用 did-jwt-vc／Universal Resolver 交叉驗證；
+4. **以簽發當時的狀態驗證**：目前驗證看的是 DID 文件「現在」的狀態，所以委派過期或撤銷後，
+   之前簽的 VC 也一起失效。若要「簽發當下有效就算有效」，可用 resolver 的 `?versionTime=<proof.created>` 解析歷史版本。
+
+### 17.7 鏈上授權與撤銷簽名金鑰（MetaMask）
+
+角色分工（實務上企業也這樣做）：
+
+|角色|是誰|要不要 ETH|
+|-|-|-|
+|發證單位的 DID|你的 MetaMask 帳戶 → `did:ethr:sepolia:<你的地址>`|要（付 gas）|
+|簽名金鑰|頁面產生的 secp256k1 金鑰，被你的 DID 授權為 `#delegate-N`|不用|
+
+```mermaid
+flowchart LR
+    A[🦊 連接 MetaMask<br/>issuer = 你的地址] --> B[🔗 addDelegate<br/>你的地址, veriKey, 簽名金鑰, 有效期]
+    B --> C[DID 文件多出 #delegate-1<br/>列在 assertionMethod]
+    C --> D[用 #delegate-1 簽 VC → 驗證通過]
+    D --> E[⛔ revokeDelegate]
+    E --> F[#delegate-1 從 DID 文件消失<br/>同一份 VC 再驗證 → 失敗]
+```
+
+操作步驟（第 2 卡「鏈上授權簽名金鑰」）：
+
+1. 準備：Chrome 安裝 MetaMask，並有少量 Sepolia 測試幣（水龍頭領取）。實測一次 `addDelegate` 約 24.5 萬 gas，
+   以目前 Sepolia 手續費約 0.0000002 ETH，0.01 ETH 綽綽有餘。
+2. 按「🦊 連接 MetaMask」：MetaMask 會要求連接並切到 Sepolia；issuer 變成你的 MetaMask DID，頁面另產生一把簽名金鑰。
+3. 選有效期（10 分鐘可示範「過期」）→ 按「🔗 授權簽名金鑰」→ 在 MetaMask 確認交易 → 上鏈後頁面重新解析 DID 文件，
+   顯示簽名金鑰是 `#delegate-N`，附 Etherscan 交易連結。
+4. 第 3 卡「生成 VC → 簽名 → 驗證」：proof 的 `verificationMethod` 是 `…#delegate-N`，驗證通過。
+5. 按「⛔ 撤銷」→ 確認交易 → 再按「驗證」同一份 VC：`DID 文件裡沒有 #delegate-N` → 失敗。這就是 §13 說 did:key 做不到的吊銷。
+
+防呆：未授權就簽名會被擋；MetaMask 取消、沒有測試幣、目前帳戶不是該 DID 的 owner（合約會以 `bad_actor` 拒絕）都會顯示原因；
+MetaMask 切換帳戶或網路後需重新連接。頁面送出的交易內容（合約地址、函式、參數）已在測試中逐項解碼確認。

@@ -3,6 +3,7 @@
 
 const $ = (id) => document.getElementById(id);
 let issuerKeys = null, holderKeys = null; // 私鑰只留在記憶體，重整頁面即銷毀
+let wallet = null; // 已連接的 MetaMask：{ provider, signer, address, did }
 
 function on(id, handler) {
   $(id).addEventListener("click", async () => {
@@ -111,6 +112,78 @@ on("btnClearKeys", () => {
   renderKeys("—");
 });
 
+/* ---------- 2b. 鏈上授權（MetaMask）---------- */
+function showWallet(cls, text, txHash) {
+  showStatus("walletStatus", cls, text);
+  if (!txHash) return;
+  const a = document.createElement("a");
+  a.href = `${ETHR.explorer}/tx/${txHash}`;
+  a.target = "_blank";
+  a.rel = "noopener";
+  a.textContent = " 在 Etherscan 查看交易 ↗";
+  $("walletStatus").append(a);
+}
+
+const walletIssuer = () => (wallet && issuerKeys?.did === wallet.did ? issuerKeys : null);
+
+on("btnWallet", async () => {
+  showWallet("", "請在 MetaMask 允許連接並切換到 Sepolia…");
+  try {
+    wallet = await connectEthrWallet();
+    const ethrM = DID_METHODS["did:ethr:"];
+    const signer = await ethrM.generate(); // 頁面產生的簽名金鑰，之後由你的 DID 授權
+    issuerKeys = { did: wallet.did, cryptosuite: signer.cryptosuite, signingKey: signer.signingKey, address: signer.address, viaWallet: true };
+    if (!holderKeys?.did.startsWith("did:ethr:")) holderKeys = await ethrM.generate();
+    document.querySelector('input[value="did:ethr:"]').checked = true;
+    $("methodHint").textContent = ethrM.hint;
+    $("inResolveDid").value = wallet.did;
+    renderKeys(`issuer = 你的 MetaMask 帳戶 · 簽名金鑰 ${signer.address}（頁面產生，尚未授權）`);
+    showWallet("ok", `✓ 已連接 ${wallet.address}。下一步：選有效期 → 「授權簽名金鑰」。`);
+  } catch (e) {
+    wallet = null;
+    showWallet("err", "連接失敗：" + walletErrorMessage(e));
+  }
+});
+
+on("btnDelegate", async () => {
+  const keys = walletIssuer();
+  if (!keys) return showWallet("err", "請先「連接 MetaMask，用它當 issuer」（重按過生成 DID 的話也要重新連接）。");
+  const validity = Number($("inValidity").value);
+  showWallet("", "請在 MetaMask 確認 addDelegate 交易…（送出後等上鏈約 10–30 秒）");
+  try {
+    const receipt = await addEthrDelegate(wallet, keys.address, validity);
+    showWallet("", `交易已上鏈（區塊 ${receipt.blockNumber}），正在重新解析 DID 文件…`, receipt.hash);
+    const fragment = await waitForDelegate(wallet.did, keys.address, $("inRpc").value.trim(), true);
+    keys.verificationMethod = `${wallet.did}#${fragment}`;
+    const until = new Date(Date.now() + validity * 1000).toLocaleString();
+    showWallet("ok", `✓ 已授權：簽名金鑰在你的 DID 文件中是 #${fragment}，約到 ${until} 有效。現在可以到第 3 卡「生成 VC → 簽名 → 驗證」。`, receipt.hash);
+    renderKeys(`issuer = 你的 MetaMask 帳戶 · 簽名金鑰 ${keys.address} = #${fragment}（已授權）`);
+  } catch (e) {
+    showWallet("err", "授權失敗：" + walletErrorMessage(e));
+  }
+});
+
+on("btnRevoke", async () => {
+  const keys = walletIssuer();
+  if (!keys) return showWallet("err", "請先連接 MetaMask 並授權簽名金鑰。");
+  showWallet("", "請在 MetaMask 確認 revokeDelegate 交易…");
+  try {
+    const receipt = await revokeEthrDelegate(wallet, keys.address);
+    showWallet("", `交易已上鏈（區塊 ${receipt.blockNumber}），確認 DID 文件已移除這把金鑰…`, receipt.hash);
+    await waitForDelegate(wallet.did, keys.address, $("inRpc").value.trim(), false);
+    const old = keys.verificationMethod;
+    keys.verificationMethod = undefined;
+    showWallet("ok", `✓ 已撤銷${old ? " #" + old.split("#")[1] : ""}。用它簽過的 VC 現在按「驗證」會失敗；要再簽需重新授權。`, receipt.hash);
+    renderKeys(`issuer = 你的 MetaMask 帳戶 · 簽名金鑰 ${keys.address}（已撤銷）`);
+  } catch (e) {
+    showWallet("err", "撤銷失敗：" + walletErrorMessage(e));
+  }
+});
+
+// 在 MetaMask 切換帳戶或網路後，舊的連線狀態就不能用了
+globalThis.ethereum?.on?.("accountsChanged", () => { if (wallet) { wallet = null; showWallet("err", "MetaMask 帳戶已切換，請重新連接。"); } });
+globalThis.ethereum?.on?.("chainChanged", () => { if (wallet) { wallet = null; showWallet("err", "MetaMask 網路已切換，請重新連接。"); } });
+
 /* ---------- 3. VC 生成／簽名／驗證 ---------- */
 on("btnIssue", () => {
   try {
@@ -130,6 +203,9 @@ on("btnSign", async () => {
     const vc = JSON.parse($("vcOut").textContent);
     if (!issuerKeys || issuerKeys.did !== vc.issuer) {
       throw new Error("頁面私鑰與此 VC 的 issuer 不符（重按過生成？）。請按順序重走：生成 DID → 生成 VC → 簽名，中途不要重按生成。");
+    }
+    if (issuerKeys.viaWallet && !issuerKeys.verificationMethod) {
+      throw new Error("issuer 是你的 MetaMask 帳戶：請先在第 2 卡「授權簽名金鑰」（若已撤銷，需重新授權）。");
     }
     const proof = await createProof(vc, issuerKeys);
     showVc({ ...vc, proof });

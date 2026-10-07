@@ -184,6 +184,24 @@ const failsOf = (r) => r.fails.join(" | ");
   t("[委派] 撤銷後 → 同一份 VC 失敗", fr.fails.some((f) => f.includes("沒有 #delegate-1")), failsOf(fr));
   L.ETHR.importResolver = realImport;
 
+  /* ---------- 寫入合約用的 ABI 與鏈上合約相符（staticCall 只模擬、不送交易） ---------- */
+  {
+    const p = new e.JsonRpcProvider(RPC, L.ETHR.chainId, { staticNetwork: true });
+    const reg = new e.Contract(L.ETHR.registry, L.ETHR.registryAbi, p);
+    const me = (await ethrM.generate()).address, del = (await ethrM.generate()).address;
+    const vk = e.encodeBytes32String(L.ETHR.delegateType);
+    let ok = true, detail = "";
+    try {
+      await reg.addDelegate.staticCall(me, vk, del, 600, { from: me });
+      await reg.revokeDelegate.staticCall(me, vk, del, { from: me });
+    } catch (err) { ok = false; detail = err.shortMessage; }
+    t("[合約] owner 模擬 addDelegate／revokeDelegate 不回滾（ABI 正確）", ok, detail);
+    let reason = "";
+    try { await reg.addDelegate.staticCall(me, vk, del, 600, { from: del }); } catch (err) { reason = err.reason; }
+    t("[合約] 非 owner 呼叫 addDelegate 被拒（bad_actor）", reason === "bad_actor", reason);
+    p.destroy();
+  }
+
   /* ---------- did:key 解析 ---------- */
   const kd = (await keyM.generate()).did;
   const kres = await keyM.resolve(kd);
