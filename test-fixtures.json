@@ -1,0 +1,104 @@
+[
+  {
+    "kind": "key",
+    "vc": {
+      "@context": [
+        "https://www.w3.org/ns/credentials/v2"
+      ],
+      "id": "urn:uuid:8df58c1a-5128-4066-8923-9b6fd29f6b2e",
+      "type": [
+        "VerifiableCredential",
+        "IsoCertificationCredential"
+      ],
+      "issuer": "did:key:z6Mkp2KHfZgJFjim5S4sqQLSyzqbH2NVzTZZsVAcubN2XA4T",
+      "validFrom": "2026-10-07T00:00:00Z",
+      "validUntil": "2029-09-16T00:00:00Z",
+      "credentialSubject": {
+        "id": "did:key:z6Mkh97xfwaTqH1cVQQT4gULDjGxVD39HQwBdKEhkAdZnvC5",
+        "certificationStandard": "ISO 9001:2015",
+        "certificateNumber": "TW-2026-QA-0891",
+        "scope": "Design and manufacture of electronic components",
+        "name": "Acme Electronics Co., Ltd."
+      },
+      "proof": {
+        "type": "DataIntegrityProof",
+        "cryptosuite": "eddsa-jcs-2022",
+        "created": "2026-10-07T01:00:00Z",
+        "verificationMethod": "did:key:z6Mkp2KHfZgJFjim5S4sqQLSyzqbH2NVzTZZsVAcubN2XA4T#z6Mkp2KHfZgJFjim5S4sqQLSyzqbH2NVzTZZsVAcubN2XA4T",
+        "proofPurpose": "assertionMethod",
+        "@context": [
+          "https://www.w3.org/ns/credentials/v2"
+        ],
+        "proofValue": "z27ppW2FazU3obUJWswf9Co4tanC4eKXNEvtoCcgFJbPoVLbKcrf18qeTuC2tCwaumecw72J1g7tCwWfasedkfKAG"
+      }
+    }
+  },
+  {
+    "kind": "key-purejs",
+    "vc": {
+      "@context": [
+        "https://www.w3.org/ns/credentials/v2"
+      ],
+      "id": "urn:uuid:1e2e43b9-95ab-44c5-acaa-ff34b54f148c",
+      "type": [
+        "VerifiableCredential",
+        "IsoCertificationCredential"
+      ],
+      "issuer": "did:key:z6MkskvDuVZEwCnLGBECEsf177bcYuFJYX7FFZhqSAZXCQuw",
+      "validFrom": "2026-10-07T00:00:00Z",
+      "validUntil": "2029-09-16T00:00:00Z",
+      "credentialSubject": {
+        "id": "did:key:z6MkkmehXQKDRuX42Qk1zn5XzyC6i74q1WHrQ8D311PW9c9A",
+        "certificationStandard": "ISO 9001:2015",
+        "certificateNumber": "TW-2026-QA-0891",
+        "scope": "Design and manufacture of electronic components",
+        "name": "Acme Electronics Co., Ltd."
+      },
+      "proof": {
+        "type": "DataIntegrityProof",
+        "cryptosuite": "eddsa-jcs-2022",
+        "created": "2026-10-07T01:00:00Z",
+        "verificationMethod": "did:key:z6MkskvDuVZEwCnLGBECEsf177bcYuFJYX7FFZhqSAZXCQuw#z6MkskvDuVZEwCnLGBECEsf177bcYuFJYX7FFZhqSAZXCQuw",
+        "proofPurpose": "assertionMethod",
+        "@context": [
+          "https://www.w3.org/ns/credentials/v2"
+        ],
+        "proofValue": "zHakabQ85iuKz7Gc2nbSPSk1t3eK6YWonUr3KAJixy5WKwQ2HU6he3nBaipARCC9oF1yMsBVRCvMvzYMhp5izxep"
+      }
+    }
+  },
+  {
+    "kind": "ethr",
+    "vc": {
+      "@context": [
+        "https://www.w3.org/ns/credentials/v2"
+      ],
+      "id": "urn:uuid:2661ac6b-5ca6-435e-bd3a-ea5e63470b32",
+      "type": [
+        "VerifiableCredential",
+        "IsoCertificationCredential"
+      ],
+      "issuer": "did:ethr:sepolia:0xAb9fC1fF45c38359dAB40195Ebcb9FA540bC32b6",
+      "validFrom": "2026-10-07T00:00:00Z",
+      "validUntil": "2029-09-16T00:00:00Z",
+      "credentialSubject": {
+        "id": "did:ethr:sepolia:0xb9366Ed6a6ACfbC313Ac9d9ffa0aA1625B5FE8F6",
+        "certificationStandard": "ISO 9001:2015",
+        "certificateNumber": "TW-2026-QA-0891",
+        "scope": "Design and manufacture of electronic components",
+        "name": "Acme Electronics Co., Ltd."
+      },
+      "proof": {
+        "type": "DataIntegrityProof",
+        "cryptosuite": "ecdsa-secp256k1-recovery-jcs-demo",
+        "created": "2026-10-07T01:00:00Z",
+        "verificationMethod": "did:ethr:sepolia:0xAb9fC1fF45c38359dAB40195Ebcb9FA540bC32b6#controller",
+        "proofPurpose": "assertionMethod",
+        "@context": [
+          "https://www.w3.org/ns/credentials/v2"
+        ],
+        "proofValue": "z2vywrtwbPPr1Ah3q4SiTiNZePede3jbxSkvD9rtVovh2v9SmsTo26dwZ9fC2iB1eMfXojUmee3wUbWXDhKYiYrxUp"
+      }
+    }
+  }
+]

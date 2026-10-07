@@ -2,7 +2,8 @@
 
 > 本文件對應 `TODO.md` 的練習目標：從一張 ISO 證書出發，生成一張結構完整、可密碼學驗證的
 > W3C Verifiable Credential（v2.0），並說明它與 DPP（Digital Product Passport，數位產品護照）的關係。
-> 專案 demo 程式：`index.html`、`app.js`、`sample-iso-cert.json`（零依賴、離線可用）。
+> 專案 demo 程式：`index.html`、`vc.js`（共用核心）、`did-key.js`、`did-ethr.js`、`ui.js`、`sample-iso-cert.json`；測試 `test.js`。
+> 密碼學全用內建或現成函式庫：did:key 用瀏覽器 WebCrypto（離線可用），did:ethr 用 ethers.js v6（CDN）。
 
 \---
 
@@ -24,6 +25,7 @@
 14. [從 demo 到真正的 DPP：路線圖](#14-從-demo-到真正的-dpp路線圖)
 15. [術語表](#15-術語表)
 16. [參考規範](#16-參考規範)
+17. [延伸：用 did:ethr（Sepolia）簽發 VC](#17-延伸用-didethrsepolia簽發-vc)
 
 \---
 
@@ -163,7 +165,8 @@ ED 01 <32-byte Ed25519 公鑰>
 
 1. base58 解碼 → 長度必須是 34 bytes；
 2. 前兩 byte 必須是 `ED 01`（證明這是 Ed25519 鑰，不是別的演算法）；
-3. 32-byte 公鑰必須真的落在 Ed25519 曲線上（解曲線方程式，不是只看字首像不像）。
+3. 剩下 32 bytes 就是 Ed25519 公鑰。它是否真的落在曲線上，交給驗簽時的 WebCrypto 處理——
+非法公鑰簽出的東西必然驗不過（重構前本 demo 自己解曲線方程式檢查，改用內建後移除）。
 
 ### 3.3 verificationMethod：簽名時指明「用哪把鑰匙驗」
 
@@ -180,8 +183,8 @@ ED 01 <32-byte Ed25519 公鑰>
 ### 3.4 為什麼 TODO 說「模擬的 DID:key」，而 demo 用真的
 
 TODO 寫「模擬」是為了先聚焦 VC 結構、不被密碼學卡住。
-本 demo 更進一步：**直接生成真正的 Ed25519 金鑰對再編成 `did:key`**（雙路徑：瀏覽器原生 WebCrypto，
-或內嵌純 JS 實作當 fallback），成本只多幾十行程式，但換來的是——這串 DID 真的能簽名、真的能驗，
+本 demo 更進一步：**直接生成真正的 Ed25519 金鑰對再編成 `did:key`**（瀏覽器內建 WebCrypto），
+成本只多幾行程式，但換來的是——這串 DID 真的能簽名、真的能驗，
 不是裝飾用的假字串。Holder 的 DID 同理，最後被放進 `credentialSubject.id`。
 
 \---
@@ -255,28 +258,25 @@ TODO 第 4 點要求「Claim 區段把 ISO 文件內最重要的宣告放進去�
 
 |TODO 要求|本 demo 實作|落在哪個檔案|
 |-|-|-|
-|1. 吃進去一個 ISO 證書|表單欄位＋「載入 `sample-iso-cert.json`」＋「從 JSON 檔匯入」|`index.html`（第 1 卡）、`sample-iso-cert.json`、`fillIsoForm`|
-|2. issuer 用模擬 DID:key|**升級為真實** Ed25519 `did:key`（原生／純 JS 雙路徑生成）|`app.js` → `generateOneDidKey`，顯示於第 2 卡|
+|1. 吃進去一個 ISO 證書|表單欄位＋「載入 `sample-iso-cert.json`」＋「從 JSON 檔匯入」|`index.html`（第 1 卡）、`sample-iso-cert.json`、`ui.js` → `fillIsoForm`|
+|2. issuer 用模擬 DID:key|**升級為真實** Ed25519 `did:key`（WebCrypto 生成）；另可選 did:ethr（§17）|`did-key.js` → `DID_METHODS["did:key:"].generate`，顯示於第 2 卡|
 |3. holder 用模擬 DID:key|同上，獨立第二把鑰匙，放入 `credentialSubject.id`|同上|
-|4. Claim 放最重要的宣告|`certificationStandard`／`certificateNumber`／`scope`／`validUntil`（＋選填 `name`）|`app.js` → `buildVc`|
-|然後生成 VC|v2.0 JSON（context／id／type／issuer／validFrom／validUntil／credentialSubject）|`app.js` → `buildVc`|
+|4. Claim 放最重要的宣告|`certificationStandard`／`certificateNumber`／`scope`／`validUntil`（＋選填 `name`）|`vc.js` → `buildVc`|
+|然後生成 VC|v2.0 JSON（context／id／type／issuer／validFrom／validUntil／credentialSubject）|`vc.js` → `buildVc`|
 |W3C 最新是 v2.0|全面採用 v2.0（含 DataIntegrityProof，見 §4）|全部|
-|（延伸）可驗證|🔏 簽名＋🔍 密碼學驗證，📂 上傳外部 VC 也能驗|`app.js` → `createDataIntegrityProof`／`verifyDataIntegrityProof`，第 3 卡|
+|（延伸）可驗證|🔏 簽名＋🔍 密碼學驗證，📂 上傳外部 VC 也能驗|`vc.js` → `createProof`／`verifyProof`，第 3 卡|
 
 \---
 
 ## 7\. 實作詳解（一）：DID 生成
 
-`generateOneDidKey()` 每次產生**全新的** Ed25519 金鑰對，issuer 與 holder 各呼叫一次，
+每個 DID method 在 `DID_METHODS` 註冊一個 `generate()`，issuer 與 holder 各呼叫一次，
 保證兩把不同（頁面會顯示比對結果）。
 
-* **路徑 1（優先）：瀏覽器原生 WebCrypto**
-`crypto.subtle.generateKey({name:"Ed25519"})`，私鑰以 `CryptoKey` 留在記憶體，
-簽名時直接 `subtle.sign`。速度快，且私鑰無法被 JS 讀出原始 bytes（只能用不能看）。
-* **路徑 2（fallback）：內嵌純 JS**
-`crypto.getRandomValues` 取 32-byte seed → SHA-512 → clamp 取純量 → 以 BigInt
-在 Ed25519 基點上做純量乘得公鑰。此路徑的 seed 即私鑰，同樣只留記憶體。
-舊瀏覽器、或 WebCrypto 尚不支援 Ed25519 的環境會自動走這條，DID 照樣是真的。
+* **did:key**（`did-key.js`）：`crypto.subtle.generateKey({name:"Ed25519"}, false, …)`，
+私鑰以**不可匯出**的 `CryptoKey` 留在記憶體，簽名時直接 `subtle.sign`——私鑰連 JS 都讀不出原始 bytes（只能用不能看）。
+需要支援 WebCrypto Ed25519 的瀏覽器（Chrome 137+、Firefox 129+、Safari 17+）。
+* **did:ethr**（`did-ethr.js`）：ethers 的 `SigningKey(randomBytes(32))`，地址用 `computeAddress`，見 §17。
 
 私鑰生命週期：**生成 → 留記憶體供簽名 → 按「清除」或重整頁面即銷毀**。
 「清除」後舊 VC 的 issuer 私鑰就沒了——頁面會拒絕再簽（防冒簽），但已簽出的 VC 照樣可驗
@@ -286,7 +286,9 @@ TODO 第 4 點要求「Claim 區段把 ISO 文件內最重要的宣告放進去�
 
 ## 8\. 實作詳解（二）：JCS 正規化
 
-`jcsCanonicalize()` 實作 RFC 8785（JSON Canonicalization Scheme），是簽名正確性的地基。
+`jcs()`（`vc.js`）實作 RFC 8785（JSON Canonicalization Scheme），是簽名正確性的地基。
+RFC 8785 規定字串與數字的序列化**就是** ECMAScript 的 `JSON.stringify`，所以程式只需自己做「物件鍵排序」，
+其餘交給內建 `JSON.stringify`，孤立 surrogate 用內建 `String.prototype.isWellFormed()` 擋下。
 規則很 Fixed、很少，但一條都不能自創：
 
 1. 物件鍵按 **UTF-16 code unit** 排序（JS 的預設字串排序恰好就是，免費對齊）；
@@ -302,25 +304,23 @@ TODO 第 4 點要求「Claim 區段把 ISO 文件內最重要的宣告放進去�
 
 ## 9\. 實作詳解（三）：簽名與驗證流程
 
-### 9.1 簽名：`createDataIntegrityProof(unsignedVc, keys, createdIso)`
+Data Integrity 的流程（proof options → hashData → 簽名 → proofValue）對所有 cryptosuite 都一樣，
+所以 `vc.js` 只寫一次；各套件只在 `SUITES` 註冊自己不同的部分（簽名長度、fragment 規則、`sign`、`verify`）。
+
+### 9.1 簽名：`createProof(unsignedVc, keys, created)`
 
 1. 檢查：有私鑰材料、`created` 合法、文件尚未含 `proof`（防重複簽名疊加語意混亂）；
-2. 組 proof 設定：`type`／`cryptosuite: eddsa-jcs-2022`／`created`／
-`verificationMethod: <issuerDID>#<指紋>`／`proofPurpose: assertionMethod`／`@context` 副本；
-3. `hashData = SHA256(JCS(proof設定)) || SHA256(JCS(文件))`；
-4. Ed25519 簽 64 bytes → `proofValue = "z" + base58btc(簽名)`；
-5. 回傳 proof，由呼叫端掛到文件上。
+2. **先組 proof options**：`type`／`cryptosuite`／`created`／
+`verificationMethod: <issuerDID>#<fragment>`／`proofPurpose: assertionMethod`／`@context` 副本；
+3. `hashData = SHA256(JCS(proof options)) || SHA256(JCS(文件))`；
+4. 交給 `SUITES[cryptosuite].sign`：eddsa-jcs-2022 用 WebCrypto `subtle.sign` 得 64 bytes；
+5. `proofValue = "z" + base58btc(簽名)`，與 proof options 合併成 proof 回傳，由呼叫端掛到文件上。
 
-私鑰從哪來：`keys.kind === "native"` 用 `subtle.sign`，`"purejs"` 用內嵌 RFC 8032 實作
-（`eddsaSignPure`：`r = SHA512(prefix‖M)`、`R = rB`、`S = r + H(R‖A‖M)·a`，全 BigInt 運算）。
+### 9.2 驗證：`verifyProof(signedVc, { rpcUrl })`
 
-### 9.2 驗證：`verifyDataIntegrityProof(signedVc)`
-
-先做不需密碼學的檢查（型別、cryptosuite 名、`created`、`proofPurpose`、`proofValue` 解出 64B、
-`verificationMethod` 格式與 DID 解碼、DID＝issuer、fragment＝指紋、`@context` 前綴），
-任一失敗直接回傳；全過才重算雙雜湊做 Ed25519 驗證。
-原生 `subtle.verify` 優先，失敗或不支援時自動切純 JS（`eddsaVerifyPure`：
-檢查 `S < L`、R／A 解碼合法、驗 `S·B == R + k·A`）。
+先做不需密碼學的通用檢查（型別、cryptosuite 是否支援、`created`、`proofPurpose`、`proofValue` 長度、
+`verificationMethod` 格式與 DID 解析、DID＝issuer、fragment、`@context` 前綴），
+任一失敗直接回傳；全過才重算雙雜湊，交給 `SUITES[cryptosuite].verify`（eddsa-jcs-2022 為 WebCrypto `subtle.verify`）。
 
 ### 9.3 頁面狀態機（demo 流程的正確順序）
 
@@ -346,8 +346,8 @@ flowchart TB
 * **第 1 層：v2.0 結構**——`@context` 含 v2、`type` 含 `VerifiableCredential`（另建議含
 `IsoCertificationCredential`）、`id` 為合法 `urn:uuid`、三個 claims 非空、
 `validFrom`／`validUntil` 合法且先後正確。
-* **第 2 層：DID 解碼與曲線檢查**——issuer 與 `credentialSubject.id` 各自 base58 解碼、
-34 bytes、`ED01` 前綴、公鑰在曲線上；且兩者不同（非自簽）。
+* **第 2 層：DID 解析**——issuer 與 `credentialSubject.id` 依各自的 DID method 解析
+（did:key：base58 解碼、34 bytes、`ED01` 前綴；did:ethr：網路、地址、EIP-55 校驗碼）；且兩者不同（非自簽）。
 * **第 3 層：與表單比對**——VC 的 claims／日期／DID 是否等於頁面目前值。
 上傳外部 VC 時這層幾乎必出提醒：**提醒不是失敗**，它只是在說「這份 VC 不是本頁產的」，
 簽名驗證不受影響——這正是「驗證不需回頭找發證者」的體現。
@@ -358,21 +358,18 @@ flowchart TB
 
 ## 11\. 正確性證據：與 W3C 官方向量逐 byte 對打
 
-實作完成後，以 W3C `vc-di-eddsa` 規範附錄 B.3（eddsa-jcs-2022）的官方測資做黑箱驗證，
-**25 項全過**，關鍵項：
+以 W3C `vc-di-eddsa` 規範附錄 B.3（eddsa-jcs-2022）的官方測資做黑箱驗證，
+已寫進 `test.js`（`node test.js` 執行，與頁面載入同一份程式），關鍵項：
 
 |檢查|結果|
 |-|-|
 |JCS(官方範例文件) 逐字等於官方正規字串|✓|
 |SHA-256(文件) 等於官方雜湊 `59b7cb62…`|✓|
-|JCS(proof 設定) 逐字等於官方正規字串|✓|
-|SHA-256(proof 設定) 等於官方雜湊 `66ab154f…`|✓|
 |官方 `secretKeyMultibase` 推導公鑰等於官方 `publicKeyMultibase`|✓|
-|純 JS 簽官方雜湊等於官方簽名（hex 與 base58 皆同）|✓|
-|全管線 `createDataIntegrityProof` 重現官方 `proofValue`|✓|
-|純 JS 簽名 ↔ Node 原生 Ed25519 雙向交叉驗證|✓|
-|竄改四招（改 claim／改簽名／加欄位／刪 proof 內 `@context`）皆驗證失敗|✓|
+|全管線 `createProof` 重現官方 `proofValue`（`z2HnFSSP…`）|✓|
+|竄改五招（改 claim／改 created／加欄位／刪 proof 內 `@context`／換 issuer）皆驗證失敗|✓|
 |demo 形狀 VC 現簽現驗通過|✓|
+|重構前舊程式簽出的 VC（`test-fixtures.json`）新程式照樣驗證通過|✓|
 
 附帶發現的兩個「以為是 bug、其實是規格」的細節（已在測試中鎖定行為）：
 
@@ -389,6 +386,9 @@ flowchart TB
 cd C:\\Users\\User\\Desktop\\project\\dpp
 python -m http.server 8000
 # 瀏覽器開 http://localhost:8000
+
+npm install    # 第一次：安裝測試用的 DID 解析器（頁面本身走 CDN，不需要）
+node test.js   # 自動測試（Node 20+，需網路）
 ```
 
 （直接雙擊開 `index.html` 也能用，但「載入 sample」會被 `file://` CORS 擋，改用「從 JSON 檔匯入」。）
@@ -468,3 +468,95 @@ W3C VC Playground 交叉比對一次。
 * RFC 8032 — Edwards-Curve Digital Signature Algorithm（EdDSA／Ed25519）
 * EU ESPR（Regulation 2024/1781）、EU Battery Regulation（2023/1542）— DPP 法源與先行場景
 
+
+\---
+
+## 17\. 延伸：用 did:ethr（Sepolia）簽發 VC
+
+> 課程第二階段：從 did:key 換成 did:ethr，以太坊測試鏈 Sepolia 上的 ERC-1056 合約當 DID registry。
+> 本階段範圍：**只做簽發與驗證**，用**現成已部署的 registry**，鏈上只做唯讀查詢（不送交易、不花 gas）。
+> 程式：`did-ethr.js`（secp256k1、keccak256、EIP-55、合約查詢都用 ethers.js v6）；頁面第 2 卡切換「did:key／did:ethr」。
+
+### 17.1 did:ethr 長什麼樣子
+
+```text
+did:ethr:sepolia:0x6e7efed4b21B6a21fbE50362dC9cB88bF5FF06fe
+└──┬───┘ └──┬──┘ └────────────── 以太坊地址（EIP-55 大小寫校驗）──┘
+   │        └─ 網路：sepolia（也可寫 chainId 0xaa36a7）
+   └─ DID method
+```
+
+地址怎麼來：`secp256k1 私鑰 → 公鑰 (X,Y) → keccak256(X‖Y) → 取最後 20 bytes`。
+跟 did:key 最大的差別：**ID 裡只有地址，沒有完整公鑰**——所以驗證時不能「拿公鑰驗簽名」，
+而是「從簽名**回推**出公鑰／地址，再比對」（見 17.3）。
+
+### 17.2 合約在做什麼：ERC-1056 EthereumDIDRegistry
+
+* **任何以太坊地址天生就是一個 did:ethr**，不需上鏈「註冊」。合約沒有紀錄時，DID 文件就是預設文件：
+  controller = 地址本身（`#controller`，型別 `EcdsaSecp256k1RecoveryMethod2020`）。
+* 合約只在要**改** DID 文件時才寫入：換 owner（`changeOwner`）、加委派金鑰（`addDelegate`）、加屬性（`setAttribute`）。
+  寫入要付 gas（Sepolia 測試幣）。
+* Sepolia 上已部署的 registry（ethr-did-resolver 官方設定）：
+  `0x03d5003bf0e79C5F5223588F347ebA39AfbC3818`，chainId `11155111`。
+* **DID 解析**：驗證時用官方 `ethr-did-resolver`（從 jsdelivr 載入）解析出完整 DID 文件。
+  原理：registry 的 `changed(address)` 記錄最後一次變更的區塊，每個事件
+  （`DIDOwnerChanged`／`DIDDelegateChanged`／`DIDAttributeChanged`）又記著上一次變更的區塊，
+  解析器沿著這條鏈往回讀完所有事件，組出目前的 DID 文件：
+  * owner 轉移 → `#controller` 改指向新 owner；
+  * `addDelegate(…, "veriKey", …)` → 多一把 `#delegate-N`，列在 `assertionMethod`（可簽發憑證）；
+  * 委派過期或 `revokeDelegate` → 那把 `#delegate-N` 從文件中消失；
+  * owner 設為 `0x0` → `deactivated: true`，DID 停用。
+* **RPC 要能讀舊事件**：解析需要讀很久以前區塊的 log。實測 publicnode 只保留約 1 萬個區塊（約 1.4 天）的 log，
+  舊的委派金鑰會解析不到；本 demo 預設改用 Tenderly 公開閘道 `https://sepolia.gateway.tenderly.co`
+  （免金鑰、允許瀏覽器跨網域、可讀舊 log）。頁面第 2 卡可改 RPC。
+
+### 17.3 簽名：proof options → proofValue（流程與 §4 相同，只換曲線）
+
+```text
+① proof options = { type: DataIntegrityProof, cryptosuite: ecdsa-secp256k1-recovery-jcs-demo,
+                    created, verificationMethod: <issuer DID>#controller, proofPurpose, @context }
+② hashData = SHA256(JCS(proof options)) ‖ SHA256(JCS(未簽名 VC))      ← 與 eddsa-jcs-2022 完全相同
+③ digest   = SHA256(hashData)                                          ← ECDSA 簽 32-byte 摘要（同 JOSE ES256K）
+④ 簽名     = ethers SigningKey.sign(digest)：secp256k1 ECDSA，k 依 RFC 6979 決定性產生，low-S
+⑤ proofValue = "z" + base58btc(r ‖ s ‖ recId)                          ← 65 bytes，多 1 byte 回推參數
+```
+
+驗證（逆向）：
+
+1. 拔 `proofValue` 得 proof options、拔 `proof` 得原文件，`@context` 前綴比對，重算 digest；
+2. 用 `(r, s, recId)` **回推出公鑰** `Q = r⁻¹(sR − eG)` → keccak256 → 地址；
+3. 解析 issuer 的 DID 文件，找到 `verificationMethod` 指到的那把鑰匙（`#controller` 或 `#delegate-N`），
+   確認它列在 `assertionMethod`，取出它的地址（連不上 RPC 時退回預設文件「#controller = DID 地址本身」，並標 ⚠）；
+4. 回推地址 == 那把鑰匙的地址 → 通過。改任一字，回推出的就是另一個隨機地址 → 失敗；
+   鑰匙被撤銷、過期、DID 停用 → 文件裡找不到它 → 失敗。
+
+### 17.4 誠實標示：這不是 W3C 標準套件
+
+W3C 標準的 ECDSA 套件（`ecdsa-rdfc-2019`／`ecdsa-jcs-2019`）只支援 P-256／P-384，**不支援以太坊的 secp256k1**。
+本 demo 的 `ecdsa-secp256k1-recovery-jcs-demo` 是**教學用自訂名稱**：轉換與雜湊沿用 eddsa-jcs-2022（JCS＋雙 SHA-256），
+簽名換成 secp256k1 可回推簽名（概念同 CCG 草案 `EcdsaSecp256k1RecoverySignature2020`，但格式不同）。
+要跟外部錢包／驗證器互通，主流做法是 JWT 版 VC（`ES256K`／`ES256K-R`，Veramo、did-jwt-vc）。
+
+### 17.5 正確性驗證（實測）
+
+|檢查|結果|
+|-|-|
+密碼學交給 ethers.js（底層為經審計的 noble 函式庫），`test.js` 驗的是本 demo 自己的組裝邏輯：
+
+|檢查|結果|
+|-|-|
+|CDN 上的 ethers 檔案符合 `index.html` 寫的 SRI 雜湊|✓|
+|線上解析 DID 文件驗證通過；RPC 斷線時以 ⚠ 降級離線驗證仍通過|✓|
+|CDN 上的解析器版本 = `package.json` 測試用版本|✓|
+|Sepolia 上的真實 DID：有委派金鑰者解析出 `#delegate-1/2`；冒用他人委派金鑰、不存在的 `#delegate-9`、已停用 DID、owner 已轉移，皆驗證失敗|✓|
+|委派金鑰正向流程（以假解析器模擬鏈上狀態）：授權中 → 通過；撤銷後同一份 VC → 失敗|✓|
+|竄改 claim／proof options／加欄位／刪 `@context`／換 issuer，皆失敗|✓|
+|high-S 可延展簽名、EIP-55 校驗碼被改、mainnet DID，皆拒絕|✓|
+|重構前（手寫 secp256k1）簽出的 VC，新程式驗證通過（格式與 RFC 6979 簽名逐 byte 相容）|✓|
+
+### 17.6 下一步（尚未做）
+
+1. ~~驗證端解析鏈上事件組 DID 文件~~（已完成：`ethr-did-resolver`，頁面第 2 卡可「📖 解析 DID 文件」）；
+2. **寫入合約**：MetaMask 帳戶當發證單位 DID、頁面金鑰當簽名鑰匙，`addDelegate(…, "veriKey", …)` 授權 →
+   用 `#delegate-1` 簽 VC → `revokeDelegate` 撤銷後同一份 VC 驗證失敗（did:key 做不到的吊銷，見 §13）；
+3. **互通**：改出 JWT 版（`ES256K-R`），用 did-jwt-vc／Universal Resolver 交叉驗證。

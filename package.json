@@ -1,0 +1,12 @@
+{
+  "name": "dpp-vc-demo",
+  "private": true,
+  "description": "測試用：瀏覽器從 CDN 載入相同版本；版本號須與 did-ethr.js 的 ETHR.resolverUrls 一致",
+  "scripts": {
+    "test": "node test.js"
+  },
+  "devDependencies": {
+    "did-resolver": "5.0.1",
+    "ethr-did-resolver": "14.1.4"
+  }
+}

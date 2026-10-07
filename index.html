@@ -19,13 +19,21 @@
   pre { background: #111; color: #e6edf3; padding: 16px; border-radius: 12px; overflow: auto; max-height: 480px; }
   .hint { opacity: 0.8; font-size: 0.9rem; }
   .badge { display: inline-block; background: #f59e0b; color: #111; font-weight: 700; font-size: 0.8rem; padding: 2px 10px; border-radius: 999px; margin-left: 8px; vertical-align: middle; }
+  .badge.signed { background: #16a34a; color: white; }
   .ok { color: #16a34a; font-weight: 700; }
+  .pass { color: #16a34a; }
+  .err { color: #dc2626; }
+  .warn { color: #b45309; }
+  .info { color: #6b7280; }
+  .summary { font-weight: 700; }
+  .methods label { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; margin: 0 16px 0 0; }
+  .methods input { width: auto; }
 </style>
 </head>
 <body>
   <h1>ISO 證書 → Verifiable Credential Demo <span class="badge" id="signBadge">UNSIGNED · 教學用</span></h1>
   <p class="hint">
-    對應 <code>TODO.md</code>：吃進 ISO 證書 → issuer / holder 用真實生成的 <code>did:key</code> →
+    對應 <code>TODO.md</code>：吃進 ISO 證書 → issuer / holder 用真實生成的 <code>did:key</code> 或 <code>did:ethr</code>（Sepolia）→
     Claim 放入最重要的 ISO 宣告 → 輸出 W3C VC Data Model <strong>v2.0</strong> JSON → 簽名後可密碼學驗證。
   </p>
 
@@ -62,10 +70,15 @@
   </div>
 
   <div class="card">
-    <h2>2. DID:key</h2>
-    <p class="hint">格式：<code>did:key:z&lt;base58btc(0xED01 + 32-byte-pubkey)&gt;</code>。issuer 私鑰留存於頁面記憶體供簽名用，重整頁面即銷毀；絕不輸出私鑰。</p>
+    <h2>2. DID</h2>
+    <p class="methods">
+      <label><input type="radio" name="didMethod" value="did:key:" checked /> did:key（Ed25519）</label>
+      <label><input type="radio" name="didMethod" value="did:ethr:" /> did:ethr（Sepolia，secp256k1）</label>
+    </p>
+    <p class="hint" id="methodHint"></p>
+    <p class="hint">issuer 私鑰留存於頁面記憶體供簽名用，重整頁面即銷毀；絕不輸出私鑰。</p>
     <p>
-      <button id="btnGen" class="primary">🎲 生成 issuer + holder DID:key</button>
+      <button id="btnGen" class="primary">🎲 生成 issuer + holder DID</button>
       <button id="btnClearKeys">清除</button>
     </p>
     <label>issuer</label>
@@ -73,6 +86,16 @@
     <label>holder — 放入 credentialSubject.id</label>
     <code class="did" id="holderDid">尚未生成</code>
     <p class="hint" id="keyMethod">—</p>
+
+    <h3>解析 DID 文件</h3>
+    <p class="hint">DID 文件列出「這個 DID 授權了哪些金鑰」。did:key 由字串本身推導；did:ethr 由
+      <code>ethr-did-resolver</code> 讀 Sepolia 上 ERC-1056 registry 的鏈上事件組出（含委派金鑰、撤銷、owner 轉移、停用）。</p>
+    <label for="inResolveDid">要解析的 DID（生成後自動帶入 issuer）</label>
+    <input id="inResolveDid" placeholder="did:ethr:sepolia:0x… 或 did:key:z…" />
+    <label for="inRpc">Sepolia RPC（解析／驗證 did:ethr 用，需能讀舊區塊的事件）</label>
+    <input id="inRpc" value="https://sepolia.gateway.tenderly.co" />
+    <p><button id="btnResolve">📖 解析 DID 文件</button></p>
+    <pre id="didDocOut" hidden></pre>
   </div>
 
   <div class="card">
@@ -86,16 +109,30 @@
       <button id="btnVerify">🔍 驗證這份 VC</button>
     </p>
     <p class="hint">上傳別處產生的 <code>vc.json</code> 也能驗：簽名照驗，claims 會跟目前表單比對，不合只記提醒。</p>
-    <p class="hint">簽名規格：<code>DataIntegrityProof / eddsa-jcs-2022</code>。
-      流程：JCS 正規化文件與 proof 設定 → 各取 SHA-256 → 串接後用 issuer Ed25519 私鑰簽名 →
+    <p class="hint">簽名規格：<code>DataIntegrityProof</code>，cryptosuite 依 issuer 的 DID 方法而定。
+      流程：先組 proof options → JCS 正規化 proof options 與文件 → 各取 SHA-256 → 串接後用 issuer 私鑰簽名 →
       <code>proofValue</code> 掛回文件。簽名後按「驗證」即做密碼學驗證；改任一字再驗就會失敗。</p>
+    <ul class="hint">
+      <li><code>did:key</code> → <code>eddsa-jcs-2022</code>（W3C 標準）：Ed25519 簽 64-byte 串接值，驗證用 DID 內的公鑰。</li>
+      <li><code>did:ethr</code> → <code>ecdsa-secp256k1-recovery-jcs-demo</code>（<strong>教學用、非 W3C 標準</strong>）：
+        secp256k1 簽串接值的 SHA-256，<code>proofValue</code> 為 65 bytes（r‖s‖recId）。驗證時從簽名回推出地址，
+        再解析 issuer 的 DID 文件，找到 <code>verificationMethod</code> 指到的金鑰（<code>#controller</code> 或委派的 <code>#delegate-N</code>）比對地址
+        （唯讀，不花 gas；連不上 RPC 就以「#controller = DID 地址本身」離線判定）。</li>
+    </ul>
     <p class="hint">v2.0 差異：<code>@context: .../ns/credentials/v2</code>，用 <code>validFrom</code> 取代 v1 的 <code>issuanceDate</code>，<code>validUntil</code> 為 ISO 日期。</p>
-    <pre id="vcOut">尚未生成。請先：填 ISO 欄位 → 生成 DID:key → 按「生成 VC JSON」，或直接「上傳 VC 檔驗證」。</pre>
+    <pre id="vcOut">尚未生成。請先：填 ISO 欄位 → 生成 DID → 按「生成 VC JSON」，或直接「上傳 VC 檔驗證」。</pre>
     <p id="vcCheck"></p>
     <div id="vcVerify"></div>
     <input type="file" id="vcFileInput" accept=".json,application/json" hidden />
   </div>
 
-<script src="./app.js"></script>
+<!-- ethers.js v6：did:ethr 的 secp256k1 / keccak256 / 合約查詢。載入失敗（離線）時 did:key 仍可用。 -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.17.0/ethers.umd.min.js"
+        integrity="sha512-AtjhVooOwBRjcpe7YjaQI6VDIBYNqpPGbuhQi0RtmoWQDD9mf9tu4p2jGXLiSw0nhE1JBvOjAbQL43yrva6C2g=="
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="./vc.js"></script>
+<script src="./did-key.js"></script>
+<script src="./did-ethr.js"></script>
+<script src="./ui.js"></script>
 </body>
 </html>
