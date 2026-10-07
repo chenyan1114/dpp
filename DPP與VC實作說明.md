@@ -342,12 +342,13 @@ flowchart TB
 ## 10\. 實作詳解（四）：驗證的三層檢查
 
 「🔍 驗證」輸出分四類：✗ 錯誤（任一即失敗）、⚠ 提醒（不判錯）、✓ 通過、ℹ 說明。
+判定原則：**✗ = 違反 VC v2.0 規範，或簽名／issuer 無法驗證；⚠ = 只是本 demo 的預期**，所以外部合法的 v2.0 VC 也能通過。
 
-* **第 1 層：v2.0 結構**——`@context` 含 v2、`type` 含 `VerifiableCredential`（另建議含
-`IsoCertificationCredential`）、`id` 為合法 `urn:uuid`、三個 claims 非空、
-`validFrom`／`validUntil` 合法且先後正確。
-* **第 2 層：DID 解析**——issuer 與 `credentialSubject.id` 依各自的 DID method 解析
-（did:key：base58 解碼、34 bytes、`ED01` 前綴；did:ethr：網路、地址、EIP-55 校驗碼）；且兩者不同（非自簽）。
+* **第 1 層：v2.0 結構**——✗：`@context` 第一項不是 v2、`type` 沒有 `VerifiableCredential`、缺 `credentialSubject`、
+`id` 有填卻不是 URL、`validFrom`／`validUntil` 有填卻不是合法日期時間或先後顛倒（v2.0 裡 `id`、`validFrom`、`validUntil` 都是選填）。
+⚠：沒有 `IsoCertificationCredential`、`id` 不是 `urn:uuid`、缺 ISO claims。
+* **第 2 層：DID 解析**——issuer 依其 DID method 解析（did:key：base58 解碼、34 bytes、`ED01` 前綴；
+did:ethr：網路、地址、EIP-55 校驗碼），解析不了就無法驗簽 → ✗；`credentialSubject.id` 解析不了只算 ⚠；兩者相同（自簽）→ ⚠。
 * **第 3 層：與表單比對**——VC 的 claims／日期／DID 是否等於頁面目前值。
 上傳外部 VC 時這層幾乎必出提醒：**提醒不是失敗**，它只是在說「這份 VC 不是本頁產的」，
 簽名驗證不受影響——這正是「驗證不需回頭找發證者」的體現。
@@ -396,12 +397,12 @@ node test.js   # 自動測試（Node 20+，需網路）
 |步驟|操作|預期|
 |-|-|-|
 |1|第 1 卡確認 ISO 欄位（或「從 JSON 檔匯入」）|表單有值|
-|2|按「🎲 生成 issuer + holder DID:key」|兩串 `did:key:z6Mk…` 且不同，顯示生成方式|
-|3|按「✨ 生成 VC JSON」|v2.0 JSON，徽章 UNSIGNED|
-|4|按「🔏 用 issuer 私鑰簽名」|多出 `proof`，徽章變綠 SIGNED|
-|5|按「🔍 驗證這份 VC」|全 ✓（含 `\[簽名]` 項）|
+|2|按「🎲 生成 issuer + holder」|兩串 `did:key:z6Mk…`|
+|3|按「✨ 生成 VC」|v2.0 JSON，徽章 UNSIGNED|
+|4|按「🔏 簽名」|多出 `proof`，徽章變綠 SIGNED|
+|5|按「🔍 驗證」|全 ✓（含 `\[簽名]` 項）|
 |6（竄改實驗）|改任一字再驗證|`\[簽名] 簽名驗證失敗`|
-|7（可攜實驗）|「下載 vc.json」→ 換瀏覽器／無痕開頁 →「📂 上傳 VC 檔驗證」→ 驗證|簽名照樣通過，claims 比對出提醒|
+|7（可攜實驗）|「下載」→ 換瀏覽器／無痕開頁 →「📂 上傳 VC」→ 驗證|簽名照樣通過，claims 比對出提醒|
 
 \---
 
@@ -556,7 +557,7 @@ W3C 標準的 ECDSA 套件（`ecdsa-rdfc-2019`／`ecdsa-jcs-2019`）只支援 P-
 
 ### 17.6 下一步（尚未做）
 
-1. ~~驗證端解析鏈上事件組 DID 文件~~（已完成：`ethr-did-resolver`，頁面第 2 卡可「📖 解析 DID 文件」）；
+1. ~~驗證端解析鏈上事件組 DID 文件~~（已完成：`ethr-did-resolver`，頁面第 2 卡「解析 DID 文件」）；
 2. ~~寫入合約：授權與撤銷簽名金鑰~~（已完成，見 §17.7）；
 3. **互通**：改出 JWT 版（`ES256K-R`），用 did-jwt-vc／Universal Resolver 交叉驗證；
 4. **以簽發當時的狀態驗證**：目前驗證看的是 DID 文件「現在」的狀態，所以委派過期或撤銷後，
@@ -580,12 +581,12 @@ flowchart LR
     E --> F[#delegate-1 從 DID 文件消失<br/>同一份 VC 再驗證 → 失敗]
 ```
 
-操作步驟（第 2 卡「鏈上授權簽名金鑰」）：
+操作步驟（第 2 卡「MetaMask 授權」）：
 
 1. 準備：Chrome 安裝 MetaMask，並有少量 Sepolia 測試幣（水龍頭領取）。實測一次 `addDelegate` 約 24.5 萬 gas，
    以目前 Sepolia 手續費約 0.0000002 ETH，0.01 ETH 綽綽有餘。
 2. 按「🦊 連接 MetaMask」：MetaMask 會要求連接並切到 Sepolia；issuer 變成你的 MetaMask DID，頁面另產生一把簽名金鑰。
-3. 選有效期（10 分鐘可示範「過期」）→ 按「🔗 授權簽名金鑰」→ 在 MetaMask 確認交易 → 上鏈後頁面重新解析 DID 文件，
+3. 選有效期（10 分鐘可示範「過期」）→ 按「🔗 授權」→ 在 MetaMask 確認交易 → 上鏈後頁面重新解析 DID 文件，
    顯示簽名金鑰是 `#delegate-N`，附 Etherscan 交易連結。
 4. 第 3 卡「生成 VC → 簽名 → 驗證」：proof 的 `verificationMethod` 是 `…#delegate-N`，驗證通過。
 5. 按「⛔ 撤銷」→ 確認交易 → 再按「驗證」同一份 VC：`DID 文件裡沒有 #delegate-N` → 失敗。這就是 §13 說 did:key 做不到的吊銷。

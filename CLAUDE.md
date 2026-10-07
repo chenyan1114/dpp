@@ -52,7 +52,7 @@ node test.js
 
 ## Architecture
 
-All files are classic scripts (not ES modules, so double-clicking the file still works) that share one global scope. `index.html` loads them in this order: ethers CDN → `vc.js` → `did-key.js` → `did-ethr.js` → `ui.js`.
+All files are classic scripts (not ES modules, so double-clicking the file still works) that share one global scope. `index.html` loads them in this order: ethers CDN → `vc.js` → `did-key.js` → `did-ethr.js` → `ui.js`. The local four are injected by a small inline loader with `?t=<Date.now()>` and `async = false`. This is because GitHub Pages sends `Cache-Control: max-age=600`, and after a deploy browsers mixed cached old JS with new HTML, which broke the page. Add new local scripts to that loader list, not as plain `<script src>` tags.
 
 - **`vc.js`**: the shared core. It holds base58btc, `concatBytes`, `sha256`, `jcs` (RFC 8785: sort keys and leave everything else to `JSON.stringify`), the `report()` helper, the generic Data Integrity flow (`createProof` / `verifyProof`), `buildVc`, and `verifyVc`. It defines two registries that the method files fill in:
   - `DID_METHODS[prefix] = { name, hint, generate(), parse(did), describe(info) }`
@@ -78,7 +78,10 @@ Adding a DID method or cryptosuite means registering it in both maps. `ui.js` di
 - `r.check(cond, passMsg, failMsg)`: a failure counts as an error.
 - `r.soft(cond, passMsg, warnMsg)`: a failure is only a warning.
 
-Only `fails` make verification fail. Some things are deliberately only warnings:
+Only `fails` make verification fail. The rule: ✗ means the VC violates VC Data Model v2.0, or the signature or issuer can't be verified; ⚠ means it merely differs from this demo's expectations. Remember that `id`, `validFrom` and `validUntil` are optional in v2.0. Examples of ⚠:
+- a non-`urn:uuid` id;
+- missing ISO claims or `IsoCertificationCredential`;
+- an unresolvable `credentialSubject.id`.
 - mismatches against the current form or the in-page DIDs, so an uploaded external VC with a valid signature still passes;
 - an unreachable RPC.
 

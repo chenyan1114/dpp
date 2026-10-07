@@ -167,59 +167,59 @@ function buildVc({ standard, number, scope, holderName, validUntil }, issuerDid,
   };
 }
 
-function checkDid(r, did, label) {
+function checkDid(r, did, label, soft = false) {
   try {
     const m = didMethodOf(did);
     r.passes.push(`${label} ${m.describe(m.parse(did))}`);
     return true;
   } catch (e) {
-    r.fails.push(`${label} DID 非法：` + e.message);
+    (soft ? r.warns : r.fails).push(`${label} DID 無法解析：` + e.message);
     return false;
   }
 }
 
-/* form（可省略）= 頁面目前的表單值與 DID，用來比對；不一致只算提醒 */
+/* ✗ = 違反 VC v2.0 規範（或無法驗證）；⚠ = 只是本 demo 的預期。
+   form（可省略）= 頁面目前的表單值與 DID，不一致只算提醒 */
 function verifyVc(vc, form) {
   const r = report();
   if (!isPlainObject(vc)) { r.fails.push("VC 不是一個 JSON 物件"); return r; }
-  const has = (arr, v) => Array.isArray(arr) && arr.includes(v);
-  r.check(has(vc["@context"], "https://www.w3.org/ns/credentials/v2"), "@context 含 W3C v2",
-    "@context 需包含 https://www.w3.org/ns/credentials/v2");
-  r.check(has(vc.type, "VerifiableCredential"), "type 含 VerifiableCredential", 'type 需包含 "VerifiableCredential"');
-  r.soft(has(vc.type, "IsoCertificationCredential"), "type 含 IsoCertificationCredential",
-    '建議 type 加上 "IsoCertificationCredential"');
-  const id = String(vc.id || "");
-  if (/^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) r.passes.push("id 為合法 urn:uuid");
-  else if (id.startsWith("urn:uuid:")) r.warns.push("id 有 urn:uuid: 前綴但 UUID 格式不標準");
-  else r.fails.push("id 需為 urn:uuid:<uuid> 格式");
+  const V2 = "https://www.w3.org/ns/credentials/v2";
+  r.check([].concat(vc["@context"])[0] === V2, "@context 第一項為 W3C v2", `@context 第一項必須是 ${V2}`);
+  r.check([].concat(vc.type).includes("VerifiableCredential"), "type 含 VerifiableCredential", 'type 必須包含 "VerifiableCredential"');
+  r.soft([].concat(vc.type).includes("IsoCertificationCredential"), "type 含 IsoCertificationCredential",
+    'type 沒有 "IsoCertificationCredential"（本 demo 預期）');
+  if (vc.id !== undefined) {
+    if (r.check(typeof vc.id === "string" && /^[a-z][a-z0-9+.-]*:\S+$/i.test(vc.id), "id 為 URL", "id 必須是 URL")) {
+      r.soft(/^urn:uuid:[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(vc.id), "id 為 urn:uuid",
+        "id 不是 urn:uuid（v2 允許任何 URL，本 demo 慣用 urn:uuid）");
+    }
+  }
 
-  const subj = vc.credentialSubject || {};
-  const issuerOk = checkDid(r, vc.issuer, "issuer");
-  const holderOk = checkDid(r, subj.id, "credentialSubject.id");
-  if (issuerOk && holderOk) {
-    r.soft(vc.issuer !== subj.id, "issuer 與 holder 為不同 DID（非自簽）", "issuer 與 holder 相同（自簽憑證，demo 正常應為不同）");
+  const issuerOk = checkDid(r, vc.issuer, "issuer"); // 要驗簽就得解析得了 issuer
+  const subj = vc.credentialSubject;
+  if (r.check(isPlainObject(subj), "有 credentialSubject", "缺 credentialSubject（v2 必填）")) {
+    const holderOk = checkDid(r, subj.id, "credentialSubject.id", true);
+    if (issuerOk && holderOk) r.soft(vc.issuer !== subj.id, "issuer 與 holder 不同", "issuer 與 holder 相同（自簽）");
+    for (const k of ["certificationStandard", "certificateNumber", "scope"]) {
+      r.soft(!!String(subj[k] ?? "").trim(), "claim 有 " + k, "缺 ISO claim：" + k);
+    }
   }
-  for (const k of ["certificationStandard", "certificateNumber", "scope"]) {
-    r.check(!!String(subj[k] ?? "").trim(), "claim 有 " + k, "缺 claim: " + k);
-  }
+  // validFrom／validUntil 在 v2 都是選填；有填就必須是合法日期時間
   const from = Date.parse(vc.validFrom), until = Date.parse(vc.validUntil);
-  r.check(!isNaN(from), "validFrom 為合法時間", "validFrom 非法或缺失（v2 必備）");
-  r.check(!isNaN(until), "validUntil 為合法時間", "validUntil 非法或缺失");
-  if (!isNaN(from) && !isNaN(until)) r.check(until > from, "validUntil 晚於 validFrom", "validUntil 應晚於 validFrom");
+  if (vc.validFrom !== undefined) r.check(!isNaN(from), "validFrom 為合法時間", "validFrom 不是合法日期時間");
+  if (vc.validUntil !== undefined) r.check(!isNaN(until), "validUntil 為合法時間", "validUntil 不是合法日期時間");
+  if (!isNaN(from) && !isNaN(until)) r.check(until > from, "validUntil 晚於 validFrom", "validUntil 必須晚於 validFrom");
 
-  if (form) {
+  if (form && isPlainObject(subj)) {
     for (const [k, f] of [["certificationStandard", "standard"], ["certificateNumber", "number"], ["scope", "scope"]]) {
-      r.soft(String(subj[k] ?? "") === String(form[f] ?? ""), `VC 的 ${k} 與表單一致`,
-        `VC 的 ${k} 與目前表單不同（生成後改了表單？以 VC 內容為準）`);
+      r.soft(String(subj[k] ?? "") === String(form[f] ?? ""), `${k} 與表單一致`, `${k} 與目前表單不同（以 VC 內容為準）`);
     }
     if (form.validUntil) {
-      r.soft(String(vc.validUntil || "").startsWith(form.validUntil.slice(0, 10)), "validUntil 日期與表單一致",
-        "validUntil 與目前表單日期不同");
+      r.soft(String(vc.validUntil || "").startsWith(form.validUntil.slice(0, 10)), "validUntil 與表單一致", "validUntil 與目前表單不同");
     }
-    if (form.issuerDid && vc.issuer !== form.issuerDid) r.warns.push("issuer 與頁面上目前的 DID 不同（生成 VC 後重按了生成？）");
-    if (form.holderDid && subj.id !== form.holderDid) r.warns.push("holder 與頁面上目前的 DID 不同（生成 VC 後重按了生成？）");
+    if (form.issuerDid && vc.issuer !== form.issuerDid) r.warns.push("issuer 不是頁面上目前的 DID");
+    if (form.holderDid && subj.id !== form.holderDid) r.warns.push("holder 不是頁面上目前的 DID");
   }
-  r.infos.push("proof" in vc ? "含 proof：按驗證會加做密碼學驗證"
-    : "無 proof（unsigned）：以上只驗結構＋DID 解碼，無法做發證者密碼學驗證");
+  r.infos.push("proof" in vc ? "含 proof：一併做密碼學驗證" : "無 proof：只驗結構，無法確認是誰簽發");
   return r;
 }

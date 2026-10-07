@@ -9,7 +9,7 @@ function didKeyFromPub(pub32) {
 
 DID_METHODS["did:key:"] = {
   name: "did:key（Ed25519）",
-  hint: "格式：did:key:z<base58btc(0xED01 + 32-byte Ed25519 公鑰)>。公鑰直接編在 ID 裡，完全離線可驗。",
+  hint: "公鑰直接編在 DID 字串裡，不需任何註冊中心，離線可驗。",
 
   async generate() {
     let keypair;

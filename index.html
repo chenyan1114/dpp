@@ -28,17 +28,16 @@
   .summary { font-weight: 700; }
   .methods label { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; margin: 0 16px 0 0; }
   .methods input { width: auto; }
+  details { margin: 8px 0; }
+  summary { cursor: pointer; }
 </style>
 </head>
 <body>
-  <h1>ISO 證書 → Verifiable Credential Demo <span class="badge" id="signBadge">UNSIGNED · 教學用</span></h1>
-  <p class="hint">
-    對應 <code>TODO.md</code>：吃進 ISO 證書 → issuer / holder 用真實生成的 <code>did:key</code> 或 <code>did:ethr</code>（Sepolia）→
-    Claim 放入最重要的 ISO 宣告 → 輸出 W3C VC Data Model <strong>v2.0</strong> JSON → 簽名後可密碼學驗證。
-  </p>
+  <h1>ISO 證書 → Verifiable Credential <span class="badge" id="signBadge">UNSIGNED</span></h1>
+  <p class="hint">把一張 ISO 證書做成 W3C VC v2.0：① 填證書 → ② 生成 DID → ③ 生成 VC、簽名、驗證。</p>
 
   <div class="card">
-    <h2>1. ISO 證書輸入</h2>
+    <h2>1. ISO 證書</h2>
     <div class="row">
       <div>
         <label for="inStandard">certificationStandard</label>
@@ -62,35 +61,32 @@
       </div>
     </div>
     <p>
-      <button id="btnFile">從 JSON 檔匯入</button>
+      <button id="btnFile">📂 從 JSON 檔匯入</button>
       <input type="file" id="fileInput" accept=".json,application/json" hidden />
     </p>
-    <p class="hint" id="fileStatus">尚未載入外部檔案，使用預設範例值（與 <code>sample-iso-cert.json</code> 相同）。</p>
+    <p class="hint" id="fileStatus">預設值同 <code>sample-iso-cert.json</code>。</p>
   </div>
 
   <div class="card">
     <h2>2. DID</h2>
     <p class="methods">
       <label><input type="radio" name="didMethod" value="did:key:" checked /> did:key（Ed25519）</label>
-      <label><input type="radio" name="didMethod" value="did:ethr:" /> did:ethr（Sepolia，secp256k1）</label>
+      <label><input type="radio" name="didMethod" value="did:ethr:" /> did:ethr（Sepolia）</label>
     </p>
     <p class="hint" id="methodHint"></p>
-    <p class="hint">issuer 私鑰留存於頁面記憶體供簽名用，重整頁面即銷毀；絕不輸出私鑰。</p>
     <p>
-      <button id="btnGen" class="primary">🎲 生成 issuer + holder DID</button>
+      <button id="btnGen" class="primary">🎲 生成 issuer + holder</button>
       <button id="btnClearKeys">清除</button>
     </p>
     <label>issuer</label>
     <code class="did" id="issuerDid">尚未生成</code>
-    <label>holder — 放入 credentialSubject.id</label>
+    <label>holder（credentialSubject.id）</label>
     <code class="did" id="holderDid">尚未生成</code>
-    <p class="hint" id="keyMethod">—</p>
+    <p class="hint" id="keyMethod">私鑰只存在頁面記憶體，重新整理就消失。</p>
 
-    <h3>鏈上授權簽名金鑰（did:ethr＋MetaMask）</h3>
-    <p class="hint">MetaMask 帳戶 = 發證單位的 DID（由它付 gas）；頁面產生的金鑰 = 被授權的簽名鑰匙（不需要 ETH）。
-      授權 = 呼叫 registry 的 <code>addDelegate(你的地址, "veriKey", 簽名鑰匙, 有效期)</code>，之後用 <code>#delegate-N</code> 簽 VC；
-      撤銷 = <code>revokeDelegate</code>，撤銷後用它簽過的 VC 再驗證就會失敗。需要少量 Sepolia 測試幣。</p>
-    <p><button id="btnWallet">🦊 連接 MetaMask，用它當 issuer</button></p>
+    <h3>MetaMask 授權（did:ethr）</h3>
+    <p class="hint">你的 MetaMask 帳戶當 issuer，授權頁面金鑰代簽（<code>addDelegate</code>）。撤銷或過期後，它簽的 VC 就驗不過。需少量 Sepolia 測試幣。</p>
+    <p><button id="btnWallet">🦊 連接 MetaMask</button></p>
     <label for="inValidity">授權有效期</label>
     <select id="inValidity">
       <option value="600">10 分鐘（示範過期）</option>
@@ -98,45 +94,44 @@
       <option value="2592000">30 天</option>
     </select>
     <p>
-      <button id="btnDelegate" class="primary">🔗 授權簽名金鑰（addDelegate）</button>
-      <button id="btnRevoke">⛔ 撤銷（revokeDelegate）</button>
+      <button id="btnDelegate" class="primary">🔗 授權</button>
+      <button id="btnRevoke">⛔ 撤銷</button>
     </p>
-    <p class="hint" id="walletStatus">尚未連接 MetaMask。</p>
+    <p class="hint" id="walletStatus">尚未連接。</p>
 
     <h3>解析 DID 文件</h3>
-    <p class="hint">DID 文件列出「這個 DID 授權了哪些金鑰」。did:key 由字串本身推導；did:ethr 由
-      <code>ethr-did-resolver</code> 讀 Sepolia 上 ERC-1056 registry 的鏈上事件組出（含委派金鑰、撤銷、owner 轉移、停用）。</p>
-    <label for="inResolveDid">要解析的 DID（生成後自動帶入 issuer）</label>
+    <p class="hint">查看一個 DID 授權了哪些金鑰。did:ethr 由 Sepolia 鏈上事件組出。</p>
+    <label for="inResolveDid">DID</label>
     <input id="inResolveDid" placeholder="did:ethr:sepolia:0x… 或 did:key:z…" />
-    <label for="inRpc">Sepolia RPC（解析／驗證 did:ethr 用，需能讀舊區塊的事件）</label>
+    <label for="inRpc">Sepolia RPC</label>
     <input id="inRpc" value="https://sepolia.gateway.tenderly.co" />
-    <p><button id="btnResolve">📖 解析 DID 文件</button></p>
+    <p><button id="btnResolve">📖 解析</button></p>
     <pre id="didDocOut" hidden></pre>
   </div>
 
   <div class="card">
-    <h2>3. 生成 VC (v2.0)</h2>
+    <h2>3. VC</h2>
     <p>
-      <button id="btnIssue" class="primary">✨ 生成 VC JSON</button>
-      <button id="btnSign" class="primary">🔏 用 issuer 私鑰簽名</button>
-      <button id="btnUploadVc">📂 上傳 VC 檔驗證</button>
+      <button id="btnIssue" class="primary">✨ 生成 VC</button>
+      <button id="btnSign" class="primary">🔏 簽名</button>
+      <button id="btnVerify" class="primary">🔍 驗證</button>
+      <button id="btnUploadVc">📂 上傳 VC</button>
       <button id="btnCopy">複製</button>
-      <button id="btnDownload">下載 vc.json</button>
-      <button id="btnVerify">🔍 驗證這份 VC</button>
+      <button id="btnDownload">下載</button>
     </p>
-    <p class="hint">上傳別處產生的 <code>vc.json</code> 也能驗：簽名照驗，claims 會跟目前表單比對，不合只記提醒。</p>
-    <p class="hint">簽名規格：<code>DataIntegrityProof</code>，cryptosuite 依 issuer 的 DID 方法而定。
-      流程：先組 proof options → JCS 正規化 proof options 與文件 → 各取 SHA-256 → 串接後用 issuer 私鑰簽名 →
-      <code>proofValue</code> 掛回文件。簽名後按「驗證」即做密碼學驗證；改任一字再驗就會失敗。</p>
-    <ul class="hint">
-      <li><code>did:key</code> → <code>eddsa-jcs-2022</code>（W3C 標準）：Ed25519 簽 64-byte 串接值，驗證用 DID 內的公鑰。</li>
-      <li><code>did:ethr</code> → <code>ecdsa-secp256k1-recovery-jcs-demo</code>（<strong>教學用、非 W3C 標準</strong>）：
-        secp256k1 簽串接值的 SHA-256，<code>proofValue</code> 為 65 bytes（r‖s‖recId）。驗證時從簽名回推出地址，
-        再解析 issuer 的 DID 文件，找到 <code>verificationMethod</code> 指到的金鑰（<code>#controller</code> 或委派的 <code>#delegate-N</code>）比對地址
-        （唯讀，不花 gas；連不上 RPC 就以「#controller = DID 地址本身」離線判定）。</li>
-    </ul>
-    <p class="hint">v2.0 差異：<code>@context: .../ns/credentials/v2</code>，用 <code>validFrom</code> 取代 v1 的 <code>issuanceDate</code>，<code>validUntil</code> 為 ISO 日期。</p>
-    <pre id="vcOut">尚未生成。請先：填 ISO 欄位 → 生成 DID → 按「生成 VC JSON」，或直接「上傳 VC 檔驗證」。</pre>
+    <p class="hint">改 VC 裡任何欄位的值再驗證就會失敗；只改排版或欄位順序不影響。</p>
+    <details class="hint">
+      <summary>技術細節</summary>
+      <ul>
+        <li>簽名：proof options 與 VC 各自 JCS 正規化 → SHA-256 → 串接 → 用簽名金鑰簽名 → <code>proofValue</code>，連同 proof options 成為 <code>proof</code>。</li>
+        <li>did:key → <code>eddsa-jcs-2022</code>（W3C 標準），驗證用 DID 內的公鑰。</li>
+        <li>did:ethr → <code>ecdsa-secp256k1-recovery-jcs-demo</code>（教學用，非標準）：從簽名回推地址，
+          再比對 DID 文件裡的 <code>#controller</code> 或 <code>#delegate-N</code>；連不上 RPC 時離線判定。</li>
+        <li>VC v2.0：<code>validFrom</code>／<code>validUntil</code> 取代 v1 的 <code>issuanceDate</code>／<code>expirationDate</code>，皆為選填的 ISO 8601 日期時間。</li>
+        <li>驗證結果：✗ 違反 v2.0 規範或簽名不符；⚠ 只是本 demo 的預期（如 <code>urn:uuid</code>、ISO claims、與表單不同）。</li>
+      </ul>
+    </details>
+    <pre id="vcOut">按「生成 VC」開始，或上傳一份 VC 來驗證。</pre>
     <p id="vcCheck"></p>
     <div id="vcVerify"></div>
     <input type="file" id="vcFileInput" accept=".json,application/json" hidden />
@@ -146,9 +141,14 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.17.0/ethers.umd.min.js"
         integrity="sha512-AtjhVooOwBRjcpe7YjaQI6VDIBYNqpPGbuhQi0RtmoWQDD9mf9tu4p2jGXLiSw0nhE1JBvOjAbQL43yrva6C2g=="
         crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-<script src="./vc.js"></script>
-<script src="./did-key.js"></script>
-<script src="./did-ethr.js"></script>
-<script src="./ui.js"></script>
+<!-- GitHub Pages 讓瀏覽器快取檔案 10 分鐘，部署後新舊檔混用會讓頁面壞掉，所以本地 JS 每次都抓最新版 -->
+<script>
+  for (const f of ["vc.js", "did-key.js", "did-ethr.js", "ui.js"]) {
+    const s = document.createElement("script");
+    s.src = `./${f}?t=${Date.now()}`;
+    s.async = false; // 動態插入的 script 預設不保證順序；設 false 才會依序執行
+    document.body.append(s);
+  }
+</script>
 </body>
 </html>
