@@ -258,7 +258,7 @@ TODO 第 4 點要求「Claim 區段把 ISO 文件內最重要的宣告放進去�
 
 |TODO 要求|本 demo 實作|落在哪個檔案|
 |-|-|-|
-|1. 吃進去一個 ISO 證書|表單欄位＋「載入 `sample-iso-cert.json`」＋「從 JSON 檔匯入」|`index.html`（第 1 卡）、`sample-iso-cert.json`、`ui.js` → `fillIsoForm`|
+|1. 吃進去一個 ISO 證書|表單欄位（預設值即範例 `sample-iso-cert.json`）＋「從 JSON 檔匯入」|`index.html`（第 1 卡）、`sample-iso-cert.json`、`ui.js` → `fillIsoForm`|
 |2. issuer 用模擬 DID:key|**升級為真實** Ed25519 `did:key`（WebCrypto 生成）；另可選 did:ethr（§17）|`did-key.js` → `DID_METHODS["did:key:"].generate`，顯示於第 2 卡|
 |3. holder 用模擬 DID:key|同上，獨立第二把鑰匙，放入 `credentialSubject.id`|同上|
 |4. Claim 放最重要的宣告|`certificationStandard`／`certificateNumber`／`scope`／`validUntil`（＋選填 `name`）|`vc.js` → `buildVc`|
@@ -391,11 +391,11 @@ npm install    # 第一次：安裝測試用的 DID 解析器（頁面本身走 
 node test.js   # 自動測試（Node 20+，需網路）
 ```
 
-（直接雙擊開 `index.html` 也能用，但「載入 sample」會被 `file://` CORS 擋，改用「從 JSON 檔匯入」。）
+（直接雙擊開 `index.html` 也能用；已部署於 https://chenyan1114.github.io/dpp/ 。）
 
 |步驟|操作|預期|
 |-|-|-|
-|1|第 1 卡確認 ISO 欄位（或載入 sample／匯入 JSON）|表單有值|
+|1|第 1 卡確認 ISO 欄位（或「從 JSON 檔匯入」）|表單有值|
 |2|按「🎲 生成 issuer + holder DID:key」|兩串 `did:key:z6Mk…` 且不同，顯示生成方式|
 |3|按「✨ 生成 VC JSON」|v2.0 JSON，徽章 UNSIGNED|
 |4|按「🔏 用 issuer 私鑰簽名」|多出 `proof`，徽章變綠 SIGNED|

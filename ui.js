@@ -70,17 +70,6 @@ function renderReport(r) {
 }
 
 /* ---------- 1. ISO 證書輸入 ---------- */
-on("btnSample", async () => {
-  try {
-    const res = await fetch("./sample-iso-cert.json");
-    if (!res.ok) throw new Error("HTTP " + res.status);
-    fillIsoForm(await res.json());
-    $("fileStatus").textContent = "已載入 sample-iso-cert.json。";
-  } catch {
-    $("fileStatus").textContent = "fetch 失敗（file:// 直接開啟會擋 fetch），已保留表單預設範例值。請用 python -m http.server 開啟，或用「從 JSON 檔匯入」。";
-  }
-});
-
 $("btnFile").addEventListener("click", () => $("fileInput").click());
 onJsonFile("fileInput",
   (j, name) => { fillIsoForm(j); $("fileStatus").textContent = "已從 " + name + " 匯入。"; },

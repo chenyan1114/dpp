@@ -43,7 +43,7 @@ node test.js
   - `test-fixtures.json`, VCs signed by the pre-refactor hand-written implementation, which must keep verifying. Don't regenerate them; they guard format compatibility.
 - There's no single-test runner. Comment out sections of `test.js` if you need to.
 - If the Sepolia RPC is down, did:ethr tests still pass through the offline fallback.
-- Opening `index.html` via `file://` works, except the "載入 sample" button, because `fetch` is blocked.
+- Opening `index.html` via `file://` works. The site is deployed to GitHub Pages from the root of `main` (https://chenyan1114.github.io/dpp/, `.nojekyll`), so pushing `main` deploys it.
 
 ## Architecture
 
